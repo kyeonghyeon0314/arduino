@@ -3,8 +3,8 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-const byte nb_rows = 4; 
-const byte nb_cols = 4; 
+const byte nb_rows = 4;
+const byte nb_cols = 4;
 
 char key_chars[nb_rows][nb_cols] = {
   {'1', '2', '3', 'A'},
@@ -13,8 +13,8 @@ char key_chars[nb_rows][nb_cols] = {
   {'*', '0', '#', 'D'}
 };
 
-byte rowPins[nb_rows] = {9, 8, 7, 6}; 
-byte colPins[nb_cols] = {10, 11, 12, 13}; 
+byte rowPins[nb_rows] = {9, 8, 7, 6};
+byte colPins[nb_cols] = {10, 11, 12, 13};
 
 SimpleKeypad kp1((char*)key_chars, rowPins, colPins, nb_rows, nb_cols);
 
@@ -50,11 +50,18 @@ int notes[] = {
 };
 bool muteMode = false;
 
+enum ScreenState {
+  ENTER_PASSWORD,
+  OPTION_SCREEN,
+  CHANGE_PASSWORD
+};
+ScreenState currentScreen = ENTER_PASSWORD;
+
 void setup() {
   Serial.begin(9600);
   lcd.init();
   lcd.backlight();
-  lcd.setCursor(0,0);
+  lcd.setCursor(0, 0);
   lcd.print("Enter pw:");
 
   servo.attach(Servopin);
@@ -107,92 +114,110 @@ void playNoteForButton(char key) {
 void loop() {
   char key = kp1.getKey();
 
-  if (key == 'C') {
-    muteMode = !muteMode; 
-    if (muteMode) {
-      lcd.clear();
-      lcd.print("Mute Mode On");
-    } else {
-      lcd.clear();
-      lcd.print("Mute Mode Off");
-    }
-    delay(1000);
-    lcd.clear();
-    lcd.print("Enter pw:");
-    return;
-  }
-
   if (key) {
-    playNoteForButton(key);
-    lcd.setCursor(passwordIndex, 1); 
+    if (key == 'C') {
+      muteMode = !muteMode;
+      lcd.clear();
+      if (muteMode) {
+        lcd.print("Mute Mode On");
+      } else {
+        lcd.print("Mute Mode Off");
+      }
+      delay(1000);
+      lcd.clear();
+      
+      switch (currentScreen) {
+        case ENTER_PASSWORD:
+          lcd.print("Enter pw:");
+          break;
+        case OPTION_SCREEN:
+          lcd.print("change: A");
+          lcd.setCursor(0, 1);
+          lcd.print("lock: D");
+          break;
+        case CHANGE_PASSWORD:
+          lcd.print("Enter new PW:");
+          lcd.setCursor(0, 1);
+          break;
+      }
+      return;
+    }
 
-    if (key == '#') { 
+    playNoteForButton(key);
+    lcd.setCursor(passwordIndex, 1);
+
+    if (key == '#') {
       passwordIndex = 0;
       lcd.setCursor(0, 1);
-      lcd.print("                "); 
+      lcd.print("                ");
       lcd.setCursor(0, 1);
       return;
     }
 
     if (changeMode) {
       if (key == 'B') {
-        newPassword[passwordIndex] = '\0';         
+        newPassword[passwordIndex] = '\0';
 
         if (strlen(newPassword) == 4) {
             strncpy(password, newPassword, 5);
             lcd.clear();
             lcd.print("PW updated");
             delay(500);
+            currentScreen = OPTION_SCREEN;
             lcd.clear();
+            lcd.print("change: A");
+            lcd.setCursor(0,1);
             lcd.print("lock: D");
             changeMode = false;
         } else {
             lcd.clear();
-            lcd.print("PW ERR");
+            lcd.print("PW ERROR");
             playErrorTone();
             delay(1000);
+            currentScreen = CHANGE_PASSWORD;
             lcd.clear();
             lcd.print("Enter new PW:");
             lcd.setCursor(0, 1);
         }
         passwordIndex = 0;
-    } else {
-      if(passwordIndex <4){
-        newPassword[passwordIndex] = key;
-        lcd.print(key);
-        passwordIndex++;
-      }else{
-      lcd.clear();
-      lcd.print("PW TOO LONG");
-      playErrorTone();
-      delay(1000);
-      lcd.clear();
-      lcd.print("Enter new PW;");
-      lcd.setCursor(0,1);
-      passwordIndex = 0;
+      } else {
+        if(passwordIndex < 4) {
+          newPassword[passwordIndex] = key;
+          lcd.print(key);
+          passwordIndex++;
+        } else {
+          lcd.clear();
+          lcd.print("PW TOO LONG");
+          playErrorTone();
+          delay(1000);
+          currentScreen = CHANGE_PASSWORD;
+          lcd.clear();
+          lcd.print("Enter new PW:");
+          lcd.setCursor(0, 1);
+          passwordIndex = 0;
+        }
       }
+      return;
     }
-    return;
-}
 
     if (key == 'D') {
+      currentScreen = ENTER_PASSWORD;
       servo.write(0);
       playLockMelody();
       lcd.clear();
       lcd.print("Enter pw:");
-      lcd.setCursor(0, 1); 
-    } else if (key == 'A') {
-      if (strcmp(inputPassword, password) == 0) {
-        changeMode = true;
-        passwordIndex = 0;
-        lcd.clear();
-        lcd.print("Enter new PW:");
-        lcd.setCursor(0, 1); 
-      }
+      lcd.setCursor(0, 1);
+    } else if (key == 'A' && currentScreen == OPTION_SCREEN) {
+      currentScreen = CHANGE_PASSWORD;
+      changeMode = true;
+      passwordIndex = 0;
+      lcd.clear();
+      lcd.print("Enter new PW:");
+      lcd.setCursor(0, 1);
     } else if (key == '*') {
       inputPassword[passwordIndex] = '\0';
-
       if (strcmp(inputPassword, password) == 0) {
+        currentScreen = OPTION_SCREEN;
         lcd.clear();
         lcd.print("unlocked");
         servo.write(angle);
@@ -200,24 +225,35 @@ void loop() {
         delay(1000);
         lcd.clear();
         lcd.print("change: A");
-        lcd.setCursor(0,1);
+        lcd.setCursor(0, 1);
         lcd.print("lock: D");
       } else {
+        currentScreen = ENTER_PASSWORD;
         lcd.clear();
-        lcd.print("PW ERR");
+        lcd.print("PW ERROR");
         playErrorTone();
         delay(1000);
         lcd.clear();
         lcd.print("Enter pw:");
-        lcd.setCursor(0, 1); 
+        lcd.setCursor(0, 1);
       }
       passwordIndex = 0;
     } else {
-      inputPassword[passwordIndex] = key;
-      lcd.print(key);
-      passwordIndex++;
+      if (passwordIndex < 4) {
+        inputPassword[passwordIndex] = key;
+        lcd.print(key);
+        passwordIndex++;
+      } else {
+        lcd.clear();
+        lcd.print("PW TOO LONG");
+        playErrorTone();
+        delay(1000);
+        lcd.clear();
+        lcd.print("Enter pw:");
+        lcd.setCursor(0, 1);
+        passwordIndex = 0;
+      }
     }
   }
 }
 
-  
